@@ -1,0 +1,156 @@
+<?php
+
+/*
+
+Copyright (C) 2005 Samuel J. Greear. All rights reserved.
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions
+are met:
+1. Redistributions of source code must retain the above copyright
+   notice, this list of conditions and the following disclaimer.
+2. Redistributions in binary form must reproduce the above copyright
+   notice, this list of conditions and the following disclaimer in the
+   documentation and/or other materials provided with the distribution.
+
+THIS SOFTWARE IS PROVIDED BY AUTHOR AND CONTRIBUTORS ``AS IS'' AND
+ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+ARE DISCLAIMED.  IN NO EVENT SHALL AUTHOR OR CONTRIBUTORS BE LIABLE
+FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
+OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
+HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
+LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
+OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
+SUCH DAMAGE.
+
+$Id$
+
+*/
+
+class SQLiteDatabaseResult implements DatabaseResult {
+
+    public $NumCols = 0;
+    public $NumRows = 0;
+    public $ColumnNames;
+    public $AssociativeArray;
+    public $IntegerArray;
+    public $Position = 0;
+
+    const INTEGER = 1;
+    const ASSOCIATIVE = 2;
+
+    public function __construct() {
+        $this->ColumnNames = array();
+        $this->AssociativeArray = array();
+        $this->IntegerArray = array();
+    }
+
+    public function GetRow($mode=DatabaseResult::ASSOCIATIVE) {
+        if ($this->Position >= $this->NumRows)
+            return false;
+
+        $this->Seek($this->Position + 1);
+
+        if ($mode == DatabaseResult::INTEGER)
+            return $this->IntegerArray[$this->Position-1];
+        elseif ($mode == DatabaseResult::ASSOCIATIVE)
+            return $this->AssociativeArray[$this->Position-1];
+    }
+
+    public function Seek($offset) {
+        $this->Position = $offset;
+    }
+}
+
+class SQLitedb extends DatabaseCommon implements DatabaseInterface {
+
+    public $Error;
+    public $AffectedRows;
+
+    private $Statements;
+    private $Result;
+
+    public function __construct($database) {
+        $this->Statements = array();
+        $this->Open($database);
+    }
+
+    public function Open($filename) {
+        $error = '';
+        $this->Link = SQLiteDatabase($filename, 0666, $error);
+
+        if (!$this->Link)
+            $this->Error(DatabaseCommon::DB_CONNECT_ERROR,
+                         "Could not perform SQLite connection. Error: " .
+                         $error);
+
+        $this->Result = NULL;
+    }
+
+    public function AutoCommit($bool) {
+    }
+
+    public function Commit() {
+    }
+
+    public function RollBack() {
+    }
+
+    public function Prepare($name, $query) {
+    }
+
+    public function Execute($name, $result_type) {
+    }
+
+    public function Query($query, $result_type) {
+        $this->Result = $this->Link->unbufferedQuery($query);
+        if (!$this->Result)
+            $this->Error(DatabaseCommon::DB_QUERY_ERROR,
+                         "Query: '". $query . "' failed. Error: " .
+                         $this->Link->lastError());
+
+        if (strtolower($query[0]) != 's') {
+            $this->AffectedRows = @this->Link->changes();
+            $this->Result = NULL;
+        }
+    }
+
+    public function GetRow($query=NULL) {
+        if ($query != NULL)
+            $this->Query($query);
+
+        $result = $this->GetResult();
+        return $result->GetRow();
+    }
+
+    public function GetResult() {
+        if ($this->Result == NULL)
+            return false;
+
+        $result = new SQLiteDatabaseResult();
+
+        $result->NumCols = @$this->Result->numFields();
+        $result->NumRows = @$this->Result->numRows();
+
+        $iarr = array();
+        while ($iarr = @$this->Result->fetch(SQLITE_NUM)
+            $result->IntegerArray[] = $iarr;
+
+        @$this->Result->rewind();
+
+        $aarr = array();
+        while ($aarr = @$this->Result->fetch(SQLITE_ASSOC)
+            $result->AssociativeArray[] = $aarr;
+
+        for ($i = 0; $i < $result->NumCols; $i++)
+            $result->ColumnNames[] = @$this->Link->fieldName($i);
+
+        $this->Result = NULL;
+
+        return $result;
+    }
+}
+
+?>

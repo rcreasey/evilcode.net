@@ -1,0 +1,61 @@
+<?php
+
+// must have a link if no content
+
+class AtomEntry extends AtomElement {
+
+    public $Summary;
+    public $Content;
+    public $Published;
+
+    public function __construct() {
+        parent::__construct('entry');
+
+        $this->Content = NULL;
+        $this->Summary = NULL;
+        $this->Published = NULL;
+    }
+
+    public function AddContent($data, $type=AtomElement::TEXT_TYPE_TEXT) {
+        $this->Content = array('type' => $type, 'data' => $data);
+    }
+
+    public function AddSummary($data, $type=AtomElement::TEXT_TYPE_TEXT) {
+        $this->Summary = array('type' => $type, 'data' => $data);
+    }
+
+      // Time of the initial creation or first availability of the entry
+    public function SetPublished($published) {
+        if (!is_int($updated))
+            $this->Published = $published;
+        else
+              // XXX: UTC/Timezone checking, etc.
+            $this->Published = date(DATE_ATOM, $published);
+    }
+
+      // Copy of all child elements of feed sans entry elements if we copied this entry
+    public function SetSource() {
+        // XXX
+    }
+
+    public static function Consume($data) {
+    }
+
+    public function Build() {
+
+        if ($this->Content !== NULL)
+            $this->AddChild($this->CreateText('content', $this->Content));
+
+        if ($this->Summary !== NULL)
+            $this->AddChild($this->CreateText('summary', $this->Summary));
+
+        if ($this->Published !== NULL)
+            $this->AddChild($this->ForkChild('published', $this->Published));
+
+        parent::Build();
+
+        return $this;
+    }
+}
+
+?>

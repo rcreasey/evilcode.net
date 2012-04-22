@@ -1,0 +1,25 @@
+<?php
+# evilcode.net
+# site configuration settings
+# $Id$
+
+$_CONF['defaults']['format']             = ($_GET['format']) ? 'xml' : 'xhtml';
+$_CONF['defaults']['page_name']          = 'index';
+$_CONF['defaults']['page_extension']     = '.page';
+$_CONF['defaults']['base_namespace_url'] = 'http://evilcode.net/xml/namespaces/';
+
+$_CONF['db'] = array();
+$_CONF['db']['type']       = 'mysql';
+$_CONF['db']['hostname']   = '';
+$_CONF['db']['username']   = '';
+$_CONF['db']['password']   = '';
+$_CONF['db']['persistant'] = true;
+$_CONF['db']['database']   = '';
+
+$_CONF['debug']       = false;
+$_CONF['debug_level'] = 3;
+
+require_once SITE_BASE . '/lib/php/global.php';
+require_once SITE_BASE . '/site/php/application.php';
+
+?>

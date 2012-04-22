@@ -1,0 +1,164 @@
+<?php
+
+/*
+
+Copyright (C) 2004-2005 Samuel J. Greear. All rights reserved.
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions
+are met:
+1. Redistributions of source code must retain the above copyright
+   notice, this list of conditions and the following disclaimer.
+2. Redistributions in binary form must reproduce the above copyright
+   notice, this list of conditions and the following disclaimer in the
+   documentation and/or other materials provided with the distribution.
+
+THIS SOFTWARE IS PROVIDED BY AUTHOR AND CONTRIBUTORS ``AS IS'' AND
+ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+ARE DISCLAIMED.  IN NO EVENT SHALL AUTHOR OR CONTRIBUTORS BE LIABLE
+FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
+OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
+HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
+LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
+OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
+SUCH DAMAGE.
+
+$Id$
+
+*/
+
+class PgSQLDatabaseResult implements DatabaseResult {
+
+    public $NumCols = 0;
+    public $NumRows = 0;
+    public $ColumnNames;
+    public $AssociativeArray;
+    public $IntegerArray;
+    public $Position = 0;
+
+    const INTEGER = 1;
+    const ASSOCIATIVE = 2;
+
+    public function __construct() {
+        $this->ColumnNames = array();
+        $this->AssociativeArray = array();
+        $this->IntegerArray = array();
+    }
+
+    public function GetRow($mode=DatabaseResult::ASSOCIATIVE) {
+        if ($this->Position >= $this->NumRows)
+            return false;
+
+        $this->Seek($this->Position + 1);
+
+        if ($mode == DatabaseResult::INTEGER)
+            return $this->IntegerArray[$this->Position-1];
+        elseif ($mode == DatabaseResult::ASSOCIATIVE)
+            return $this->AssociativeArray[$this->Position-1];
+    }
+
+    public function Seek($offset) {
+        $this->Position = $offset;
+    }
+}
+
+class PgSQLdb extends DatabaseCommon implements DatabaseInterface {
+
+    public $Error;
+    public $AffectedRows;
+
+    private $Statements;
+    private $Result;
+
+    public function __construct($hostname, $username, $password, $database) {
+        $this->Statements = array();
+        $this->Connect($hostname, $username, $password, $database);
+    }
+
+    public function Connect($hostname, $username, $password, $database) {
+        $connect_string = 'host=%s user=%s password=%s dbname=%s port=5432';
+        $connect_string = sprintf($connect_string, $hostname, $username, $password,
+                                  $database);
+
+        $this->Link = @pg_connect($connect_string);
+        if (!$this->Link)
+            $this->Error(DatabaseCommon::DB_CONNECT_ERROR,
+                         "Could not connect to PostgreSQL server. Error: " .
+                         pg_last_error($this->Link));
+
+        $this->Result = NULL;
+    }
+
+    public function AutoCommit($bool) {
+    }
+
+    public function Commit() {
+    }
+
+    public function RollBack() {
+    }
+
+    public function Prepare($name, $query) {
+    }
+
+    public function Execute($name, $result_type) {
+    }
+
+    public function Query($query=NULL, $result_type) {
+        $this->Result = @pq_query($this->Link, $query);
+        if (!$this->Result)
+            $this->Error(DatabaseCommon::DB_QUERY_ERROR,
+                         "Query: '". $query . "' failed. Error: " .
+                         pg_last_error($this->Link));
+
+        if (strtolower($query[0]) != 's') {
+            $this->AffectedRows = @pg_affected_rows($this->Result);
+            pg_free_result($this->Result);
+            $this->Result = NULL;
+        }
+    }
+
+    public function GetRow($query=NULL) {
+        if ($query != NULL)
+            $this->Query($query);
+
+        $result = $this->GetResult();
+        return $result->GetRow();
+    }
+
+    public function GetResult() {
+        if ($this->Result == NULL)
+            return false;
+
+        $result = new PgSQLDatabaseResult();
+
+        $result->NumCols = @pg_num_fields($this->Result);
+        $result->NumRows = @pg_num_rows($this->Result);
+
+        $iarr = array();
+        $i = 0;
+        while ($iarr = @pg_fetch_array($this->Result, $i++, PGSQL_NUM))
+            $result->IntegerArray[] = $iarr;
+
+        @pg_result_seek($this->Result, 0);
+
+        $aarr = array();
+        $i = 0;
+        while ($aarr = @pg_fetch_array($this->Result, $i++, PGSQL_ASSOC))
+            $result->AssociativeArray[] = $aarr;
+
+        for ($i = 0; $i < $result->NumCols; $i++)
+            $result->ColumnNames[] = @pg_field_name($this->Result, $i);
+
+        $result->NumCols = @pg_num_fields($this->Result);
+        $result->NumRows = @pg_num_rows($this->Result);
+        @pg_free_result($this->Result);
+        $this->Result = NULL;
+
+        return $result;
+    }
+}
+
+?>

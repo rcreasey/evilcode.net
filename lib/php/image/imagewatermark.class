@@ -1,0 +1,61 @@
+<?php
+
+class ImageWatermark {
+
+    private $IR;
+    private $Wm_Res;
+    private $Resized;
+
+    public $OffsetX;
+    public $OffsetY;
+
+    public function __construct($watermark_file) {
+        $this->IR = new ImageResize();
+        $this->IR->OutputFormat = ImageResize::IMAGETYPE_GD;
+        $this->Wm_Res = $this->IR->LoadFromFile($watermark_file);
+        $this->Resized = false;
+    }
+
+    public function __destroy() {
+        $this->IR->FreeResource($this->Wm_Res);
+    }
+
+    public function SetWidth($width) {
+        $this->Resized = true;
+        $this->IR->SetWidth($width);
+    }
+
+    public function SetHeight($height) {
+        $this->Resized = true;
+        $this->IR->SetHeight($height);
+    }
+
+    public function SetOffsetX($offset_x) {
+        $this->OffsetX = $offset_x;
+    }
+
+    public function SetOffsetY($offset_y) {
+        $this->OffsetY = $offset_y;
+    }
+
+     // XXX: Currently only supports placing watermarks in the lower right corner
+    public function Watermark($gd_image_resource) {
+
+        if ($this->Resized == true) {
+            $this->Wm_Res = $this->IR->Resize($this->Wm_Res);
+            $this->Resized = false;
+        }
+
+        $wm_width = imagesx($this->Wm_Res);
+        $wm_height = imagesy($this->Wm_Res);
+
+        $img_width = imagesx($gd_image_resource);
+        $img_height = imagesy($gd_image_resource);
+
+        imagecopy($gd_image_resource, $this->Wm_Res, $img_width-($wm_width+$this->OffsetX),
+                  ($img_height-$wm_height)+OffsetY, 0, 0, $wm_width, $wm_height);
+
+    }
+}
+
+?>

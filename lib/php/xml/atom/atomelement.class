@@ -1,0 +1,203 @@
+<?php
+
+class AtomElement extends XMLement {
+
+    private $Id;
+    private $Rights;
+    private $Title;
+    private $Updated;
+
+    private $Authors;
+    private $Categories;
+    private $Contributors;
+    private $Links;
+
+    const TEXT_TYPE_TEXT = 1;
+    const TEXT_TYPE_HTML = 2;
+    const TEXT_TYPE_XHTML = 3;
+
+    const PERSON_TYPE_AUTHOR = 1;
+    const PERSON_TYPE_CONTRIBUTOR = 2;
+
+    public function __construct($name) {
+        parent::__construct($name, NULL, 'atom');
+
+        $this->Id = NULL;
+        $this->Rights = NULL;
+        $this->Title = NULL;
+        $this->Updated = NULL;
+
+        $this->Authors = array();
+        $this->Contributors = array();
+        $this->Categories = array();
+        $this->Links = array();
+    }
+
+    public function AddAuthor($name, $uri=NULL, $email=NULL) {
+        return $this->AddAuthor(AtomElement::PERSON_TYPE_AUTHOR, $name, $uri, $email);
+    }
+
+    public function AddContributor($name, $uri=NULL, $email=NULL) {
+        return $this->AddAuthor(AtomElement::PERSON_TYPE_CONTRIBUTOR, $name, $uri, $email);
+    }
+
+    public function AddCategory($term, $scheme=NULL, $label=NULL) {
+        $this->Categories[] = array('term' => $term, 'scheme' => $scheme, 'label' => $label);
+    }
+
+    public function AddLink($link) {
+        if (!$link instanceof AtomLink)
+            throw new Exception('Link must be an instance of AtomLink');
+
+        $this->Links[] = $link;
+    }
+
+    private function AddPerson($type, $name, $uri=NULL, $email=NULL) {
+        if ($type != AtomElement::PERSON_TYPE_AUTHOR &&
+            $type != AtomElement::PERSON_TYPE_CONTRIBUTOR)
+            throw new Exception('Person type must be Author or Contributor');
+
+        $person = array('name' => $name, 'uri' => $uri, 'email' => $email);
+
+        if ($type == AtomElement::PERSON_TYPE_AUTHOR)
+            $this->Authors[] = $person;
+        elseif ($type == AtomElement::PERSON_TYPE_CONTRIBUTOR)
+            $this->Contributors[] = $person;
+    }
+
+    // <id>http://example.com/blog/1234</id>
+    public function SetId($id) {
+        $this->Id = $id;
+    }
+
+    public function SetRights($data, $type=AtomElement::TEXT_TYPE_TEXT) {
+        $this->Rights = array('type' => $type, 'data' => $data);
+    }
+
+    // <title>Atom-Powered Robots Run Amok</title>
+    public function SetTitle($data, $type=AtomElement::TEXT_TYPE_TEXT) {
+        $this->Title = array('type' => $type, 'data' => $data);
+    }
+
+    // <updated>2003-12-13T18:30:02-05:00</updated>
+    public function SetUpdated($updated) {
+        if ($updated === NULL)
+            $updated = time();
+
+        if (!is_int($updated))
+            $this->Updated = $updated;
+        else
+              // XXX: UTC/Timezone checking, etc.
+            $this->Updated = date(DATE_ATOM, $updated);
+    }
+
+    protected function CreateCategory($data) {
+        if (!is_array($data))
+            throw new Exception('CreateCategory expects an array for argument $data');
+
+        $term = $data['term'];
+        $scheme = $data['scheme'];
+        $label = $data['label'];
+
+        $node = $this->ForkChild('category');
+        $node->SetAttribute('term', $term);
+
+        if ($scheme !== NULL)
+            $node->SetAttribute('scheme', $scheme);
+
+        if ($label !== NULL)
+            $node->SetAttribute('label', $label);
+
+        return $node;
+    }
+
+    protected function CreatePerson($node_name, $data) {
+        if (!is_array($data))
+            throw new Exception('CreatePerson expects an array for argument $data');
+
+        $name = $data['name'];
+        $uri = $data['uri'];
+        $email = $data['email'];
+
+        $node = $this->ForkChild($node_name);
+        $node->AddChild($node->ForkChild('name', $name));
+
+        if ($uri !== NULL)
+            $node->AddChild($node->ForkChild('uri', $uri));
+
+        if ($email !== NULL)
+            $node->AddChild($node->ForkChild('email', $email));
+
+        return $node;
+    }
+
+    protected function CreateText($node_name, $data) {
+        if (!is_array($data))
+            throw new Exception('CreateText expects an array for argument $data');
+
+        $type = $data['type'];
+        $text = $data['data'];
+
+        if ($type != AtomElement::TEXT_TYPE_TEXT &&
+            $type != AtomElement::TEXT_TYPE_HTML &&
+            $type != AtomElement::TEXT_TYPE_XHTML)
+            throw new Exception('Type of text must be specified as TEXT, HTML or XHTML');
+
+        $node = $this->ForkChild($node_name);
+
+          // when building any text type, title, summary, content, rights
+          // if type == HTML, do entity escaping
+          // if type == xhtml, wrap in div, <div xmlns="http://www.w3.org/1999/xhtml"/>
+        switch ($type) {
+            case AtomElement::TEXT_TYPE_TEXT:
+                $node->SetValue($text);
+                $node->SetAttribute('type', 'text');
+                break;
+            case AtomElement::TEXT_TYPE_HTML:
+                $node->SetValue(htmlentities($text));
+                $node->SetAttribute('type', 'html');
+                break;
+            case AtomElement::TEXT_TYPE_XHTML:
+                  // XXX
+                $node->SetValue('<div xmlns="http://www.w3.org/1999/xhtml"/>' . $text . '</div>');
+                $node->SetAttribute('type', 'xhtml');
+                break;
+        }
+
+        return $node;
+    }
+
+    public static function Consume($data) {
+    }
+
+    public function Build() {
+
+        if ($this->Id !== NULL)
+            $this->AddChild($this->ForkChild('id', $this->Id));
+
+        if ($this->Rights !== NULL)
+            $this->AddChild($this->CreateText('rights', $this->Rights));
+
+        if ($this->Title !== NULL)
+            $this->AddChild($this->CreateText('title', $this->Title));
+
+        if ($this->Updated !== NULL)
+            $this->AddChild($this->ForkChild('updated', $this->Updated));
+
+        foreach ($this->Authors as $author)
+            $this->AddChild($this->CreatePerson('author', $author));
+
+        foreach ($this->Contributors as $contributor)
+            $this->AddChild($this->CreatePerson('contributor', $contributor));
+
+        foreach ($this->Categories as $category)
+            $this->AddChild($this->CreateCategory($category));
+
+        foreach ($this->Links as $link)
+            $this->AddChild($link->Build());
+
+        return $this;
+    }
+}
+
+?>

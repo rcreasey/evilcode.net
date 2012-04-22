@@ -1,0 +1,97 @@
+<?php
+
+class WSDLClass extends GrokClass {
+
+    public $Patterns = array(
+        'var' => '/(\@var) ([\w_]+)(\[\])*[\ ]?(.*)/',
+        'param' => '/(\@param) ([\w_]+)(\[\])* (\$[\w_]*),*([.]{3})*[\ ]?(.*)/',
+        'return' => '/(\@return) ([\w_]+)(\[\])*[\ ]?(.*)/');
+
+    public $IgnoreMethods = array('__construct', '__destruct', '__get', '__set',
+                                  '__call', '__sleep', '__wakeup');
+    public $Methods = array();
+    
+    private $WSDL;
+    private $CurrentPort;
+    private $CurrentBinding;
+        
+    public function __construct($class) {
+        parent::__construct($class);
+    }
+
+    public function NewClass($name, $comment) {
+        $this->WSDL = new WSDLDefinition($name, 'XXX');
+        
+        $this->CurrentPort = $name . 'Port';
+        $this->WSDL->NewPortType($this->CurrentPort);
+        
+        $this->CurrentBinding = $name . 'Binding';
+        $this->WSDL->NewBinding($this->CurrentBinding, 'tns:' . $name . 'Port');
+        $this->WSDL->AddSoapBinding($this->CurrentBinding, 'rpc');
+
+        $this->WSDL->AddService($name . 'Service', 'tns:' . $name . 'Port',
+                                'tns:' . $this->CurrentBinding, 'XXX');
+    }
+
+    public function NewMethod($name, $comment, $public, $parameters) {
+        if (in_array($name, $this->IgnoreMethods))
+            return;
+        if (!$public)
+            return;
+
+        $this->Methods[] = $name;
+            
+        $c_lines = explode("\n", $comment);
+        array_shift($c_lines);
+        array_pop($c_lines);
+
+          /* XXX: Hardcoded URL */
+        $io_arr = array('use' => 'encoded',
+                        'encodingStyle' => 'http://schemas.xmlsoap.org/soap/encoding/');
+        $this->WSDL->AddBindingOperation($this->CurrentBinding, $name, $io_arr, $io_arr);
+        $this->WSDL->AddSoapOperation($this->CurrentPort, 'XXX/soap/' . $this->CurrentClassName .
+                                      '/' . $name);
+        
+        $request_name = $name . 'Request';
+        $this->WSDL->NewMessage($request_name);
+        $part_count = 0;
+        
+        foreach ($c_lines as $line) {
+            if (preg_match($this->Patterns['param'], $line, $param_match)) {
+                $part_name = ltrim($param_match[4], '$');
+                $part_type = $this->WSDL->GetType($param_match[2]);
+
+                /* XXX: BUILD COMPLEX TYPE
+                if ($parameters[$part_name]['optional'])
+                */
+
+                $this->WSDL->AddMessagePart($request_name, $part_name, $part_type);
+                $part_count++;
+            }
+            else if (preg_match($this->Patterns['return'], $line, $return_match)) {
+                $return_type = $this->WSDL->GetType($return_match[2]);
+                if ($return_type != NULL) {
+                    $response_name = $name . 'Response';
+                    $this->WSDL->NewMessage($response_name);
+                    $this->WSDL->AddMessagePart($response_name, $name . 'Return', $return_type);
+                    $part_count = 0;
+                }
+            }
+        }
+
+          /* No message parts, pull it */
+        if ($part_count == 0)
+            unset($this->WSDL->Messages[$request_name]);
+        
+        $this->WSDL->AddPortOperation($this->CurrentPort, $name,
+                                      ($part_count) ? 'tns:' . $name . 'Request' : NULL,
+                                      ($return_type) ? 'tns:' . $name . 'Response' : NULL);
+    }
+
+    public function Render() {
+        $this->WSDL->Build();
+        return $this->WSDL->Render();
+    }
+}
+
+?>

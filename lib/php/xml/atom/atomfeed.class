@@ -1,0 +1,69 @@
+<?php
+
+// limited to one alternate per type and hreflang. A feed should contain a link back to the feed itself
+
+class AtomFeed extends AtomElement {
+
+    public $Icon;
+    public $Logo;
+    public $Subtitle;
+
+    public $Entries;
+
+    public function __construct() {
+        parent::__construct('feed');
+
+        $this->Icon = NULL;
+        $this->Logo = NULL;
+        $this->Subtitle = NULL;
+
+        $this->Entries = array();
+    }
+
+    public function AddEntry($entry) {
+        if (!$entry instanceof AtomEntry)
+            throw new Exception('Entries must be instances of AtomEntry class');
+
+        $this->Entries[] = $entry;
+    }
+
+    public function SetIcon($uri) {
+        $this->Icon = $uri;
+    }
+
+    public function SetLogo($uri) {
+        $this->Logo = $uri;
+    }
+
+    public function SetSubtitle($data) {
+        $this->Subtitle = $data;
+    }
+
+    public static function Consume($data) {
+    }
+
+    public function Build() {
+        if ($this->Icon !== NULL)
+            $this->AddElement('icon', $this->Icon);
+
+        if ($this->Logo !== NULL)
+            $this->AddElement('logo', $this->Logo);
+
+        if ($this->Subtitle !== NULL)
+            $this->AddElement('subtitle', $this->Subtitle);
+
+        $node = $this->ForkChild('generator', 'Exhibition');
+        $node->SetAttribute('uri', 'http://evilprojects.com/exhibition/');
+        $node->SetAttribute('version', '1.0');
+        $this->AddChild($node);
+
+        parent::Build();
+
+        foreach ($this->Entries as $entry)
+            $this->AddChild($entry->Build());
+
+        return $this;
+    }
+}
+
+?>

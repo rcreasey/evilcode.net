@@ -1,0 +1,289 @@
+<?php
+
+// XXX: Make CalculateSize a stub to be implemented in subclasses, for limitless possibilities
+
+class ImageResize {
+
+    private $Width = NULL;
+    private $Height = NULL;
+
+    private $MaxWidth = NULL;
+    private $MaxHeight = NULL;
+
+    private $WorkingWidth = NULL;
+    private $WorkingHeight = NULL;
+
+      // Quality of output image, as a percentage, 0-100
+    public $Quality = 90;
+
+      // Applies to $Width, $Height
+    public $KeepAspectRatio = true;
+
+      // Scale image to $Width/$Height, keeping aspect ratio, cropping excess
+    public $AutoCrop = false;
+
+    const IMAGETYPE_JPEG = IMAGETYPE_JPEG;
+    const IMAGETYPE_PNG = IMAGETYPE_PNG;
+    const IMAGETYPE_GD = 31337;
+
+    public $OutputFormat = ImageResize::IMAGETYPE_JPEG;
+
+
+    public function __construct($width=NULL, $height=NULL) {
+        if ($width != NULL)
+            $this->SetWidth($width);
+
+        if ($height != NULL)
+            $this->SetHeight($height);
+    }
+
+    public function SetWidth($width) {
+        if (is_numeric($width))
+            $this->Width = (int)$width;
+        else
+            throw new Exception('Destination image width must be numeric.');
+    }
+
+    public function SetHeight($height) {
+        if (is_numeric($height))
+            $this->Height = (int)$height;
+        else
+            throw new Exception('Destination height must be numeric');
+    }
+
+    public function SetMaxWidth($width) {
+        if (is_numeric($width))
+            $this->MaxWidth = (int)$width;
+        else
+            throw new Exception('Destination image width must be numeric.');
+    }
+
+    public function SetMaxHeight($height) {
+        if (is_numeric($height))
+            $this->MaxHeight = (int)$height;
+        else
+            throw new Exception('Destination height must be numeric');
+    }
+
+    public function SetDimensions($width, $height) {
+        $this->SetWidth($width);
+        $this->SetHeight($height);
+    }
+
+    public function SetMaxDimensions($width, $height) {
+        $this->SetMaxWidth($width);
+        $this->SetMaxHeight($height);
+    }
+
+    public function SetQuality($quality) {
+        if (is_numeric($quality)) {
+            $quality = (int)$quality;
+            if ($quality <= 0)
+                throw new Exception('Quality of destination image may not be less than 0');
+            else if ($quality >= 100)
+                throw new Exception('Quality of destination image may not be greater than 100');
+            else
+                $this->Quality = $quality;
+        } else {
+            throw new Exception('Thumbnail quality level must be numeric');
+        }
+    }
+
+    public function KeepAspectRatio($bool_ar) {
+        if ($bool_ar == true || $bool_ar == false)
+            $this->KeepAspectRatio = $bool_ar;
+        else
+            throw new Exception('Argument must be boolean');
+    }
+
+    public function AutoCrop($bool_ac) {
+        if ($bool_ac == true || $bool_ac == false)
+            $this->AutoCrop = $bool_ac;
+        else
+            throw new Exception('Argument must be boolean');
+    }
+
+    public function LoadFromFile($image_path) {
+        if (!file_exists($image_path))
+            throw new Exception('Image file does not exist');
+
+        $image_data = file_get_contents($image_path);
+        if ($image_data == false)
+            throw new Exception('Could not load image from file');
+
+        $gd_image_resource = imagecreatefromstring($image_data);
+        if ($gd_image_resource == false)
+            throw new Exception('Could not create image from data contained in file, ' .
+                                'it is possible that the image type is unsupported, ' .
+                                'the data is not in a recognised format, or the image is corrupt');
+
+        return $gd_image_resource;
+    }
+
+    public function LoadFromString($image_data) {
+        $gd_image_resource = imagecreatefromstring($image_data);
+        if ($gd_image_resource == false)
+            throw new Exception('Could not create image from supplied data, it is possible that ' .
+                                 'the image type is unsupported, the data is not in a recognised ' .
+                                 'format, or the image is corrupt');
+
+        return $gd_image_resource;
+    }
+
+    public function OutputFile($image_data, $filename) {
+        if (!file_put_contents($filename, $image_data)) {
+            throw new exception('Could not write file');
+        }
+    }
+
+    public function FreeResource($gd_image_resource) {
+        imagedestroy($gd_image_resource);
+    }
+
+    public function Resize($gd_image_resource) {
+        $orig_width = imagesx($gd_image_resource);
+        $orig_height = imagesy($gd_image_resource);
+
+        $this->WorkingWidth = NULL;
+        $this->WorkingHeight = NULL;
+
+        $icr_result = true;
+        $gd_output_res = NULL;
+
+        if ($this->AutoCrop == true) {
+            $ac_size_arr = $this->CalculateFixedSize($orig_width, $orig_height);
+            $gd_output_res = imagecreatetruecolor($this->Width, $this->Height);
+            $icr_result = imagecopyresampled($gd_output_res, $gd_image_resource, 0, 0,
+                                             $ac_size_arr[0], $ac_size_arr[1],
+                                             $this->Width, $this->Height,
+                                             $ac_size_arr[2], $ac_size_arr[3]);
+        } else {
+            $this->CalculateRelativeSize($orig_width, $orig_height);
+            $gd_output_res = imagecreatetruecolor($this->WorkingWidth, $this->WorkingHeight);
+            $icr_result = imagecopyresampled($gd_output_res, $gd_image_resource, 0, 0, 0, 0,
+                                             $this->WorkingWidth, $this->WorkingHeight,
+                                             $orig_width, $orig_height);
+        }
+
+        if (!$icr_result)
+            throw new Exception('imagecopyresampled failed, XXX: Fixme');
+
+        return $this->GetImageData($gd_output_res);
+
+        if (!$status)
+            throw new Exception('Could not build output image, imagejpeg failure');
+
+        return $image_data;
+    }
+
+    public function GetImageData($gd_output_res) {
+        ob_start();
+
+        if ($this->OutputFormat == ImageResize::IMAGETYPE_JPEG) {
+            $status = imagejpeg($gd_output_res, '', $this->Quality);
+        }
+        elseif ($this->OutputFormat == ImageResize::IMAGETYPE_PNG) {
+            $status = imagepng($gd_output_res, '');
+            ex_debug('Quality settings not honored for PNG thumbnails', 3);
+        }
+        elseif ($this->OutputFormat == ImageResize::IMAGETYPE_GD) {
+            ob_end_clean();
+            return $gd_output_res;
+        } else {
+            ob_end_clean();
+            throw new Exception('Unrecognized or Invalid output format');
+        }
+
+        $image_data = ob_get_contents();
+        ob_end_clean();
+
+        return $image_data;
+    }
+
+    private function CalculateFixedSize($orig_width, $orig_height) {
+
+        if ($orig_width >= $this->Width && $orig_height >= $this->Height) {
+            if ($orig_height < $orig_width) {
+                $ratio = (double)($orig_height / $this->Height);
+                $copy_width = round($this->Width * $ratio);
+                if ($copy_width > $orig_width) {
+                    $ratio = (double)($orig_width / $this->Width);
+                    $copy_width = $orig_width;
+                    $copy_height = round($this->Height * $ratio);
+                    $x_offset = 0;
+                    $y_offset = round(($orig_height - $copy_height) / 2);
+                } else {
+                    $copy_height = $orig_height;
+                    $x_offset = round(($orig_width - $copy_width) / 2);
+                    $y_offset = 0;
+                }
+            } else {
+                $ratio = (double)($orig_width / $this->Width);
+                $copy_height = round($this->Height * $ratio);
+                if ($copy_height > $orig_height) {
+                    $ratio = (double)($orig_height / $this->Height);
+                    $copy_height = $orig_height;
+                    $copy_width = round($this->Width * $ratio);
+                    $x_offset = round(($orig_width - $copy_width) / 2);
+                    $y_offset = 0;
+                } else {
+                    $copy_width = $orig_width;
+                    $x_offset = 0;
+                    $y_offset = round(($orig_height - $copy_height) / 2);
+                }
+            }
+            return array($x_offset, $y_offset, $copy_width, $copy_height);
+        } else {
+            throw new Exception('Target has x or y dimensions smaller than original');
+        }
+    }
+
+    private function CalculateRelativeSize($orig_width, $orig_height) {
+        if ($this->WorkingWidth == NULL)
+            if ($this->Width == NULL)
+                $this->WorkingWidth = $this->MaxWidth;
+            else
+                $this->WorkingWidth = $this->Width;
+        if ($this->WorkingHeight == NULL)
+            if ($this->Height == NULL)
+                $this->WorkingHeight = $this->MaxHeight;
+            else
+                $this->WorkingHeight = $this->Height;
+
+        if ($this->WorkingWidth == NULL && $this->WorkingHeight == NULL)
+            throw new Exception('Unable to scale image without a target width or height');
+
+        if ($this->KeepAspectRatio == true) {
+            if ($this->WorkingWidth == NULL)
+                $this->WorkingWidth = (int)$this->WorkingHeight/($orig_height/$orig_width);
+            elseif ($this->WorkingHeight == NULL)
+                $this->WorkingHeight = (int)$this->WorkingWidth/($orig_width/$orig_height);
+            else {
+                $width_ratio = $this->WorkingWidth/$orig_width;
+                $height_ratio = $this->WorkingHeight/$orig_height;
+
+                if ($width_ratio > $height_ratio)
+                    $this->WorkingWidth = (int)$this->WorkingHeight/($orig_height/$orig_width);
+                elseif ($height_ratio > $width_ratio)
+                    $this->WorkingHeight = (int)$this->WorkingWidth/($orig_width/$orig_height);
+            }
+        } else {
+            if ($this->WorkingWidth == NULL)
+                $this->WorkingWidth = $this->WorkingHeight;
+            elseif ($this->WorkingHeight == NULL)
+                $this->WorkingHeight == $this->WorkingWidth;
+        }
+
+/*
+        if ($this->MaxWidth > $this->WorkingWidth) {
+            $this->WorkingWidth = $this->MaxWidth;
+            $this->CalculateRelativeSize($orig_width, $orig_height);
+        } elseif ($this->MaxHeight > $this->WorkingHeight) {
+            $this->WorkingHeight = $this->MaxHeight;
+            $this->CalculateRelativeSize($orig_width, $orig_height);
+        }
+*/
+    }
+}
+
+?>

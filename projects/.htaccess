@@ -1,0 +1,4 @@
+# evilcode.net rewrite rules
+# $Id$
+
+RewriteEngine off

@@ -1,0 +1,169 @@
+<?php
+
+/*
+
+Copyright (C) 2004-2006 Samuel J. Greear. All rights reserved.
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions
+are met:
+1. Redistributions of source code must retain the above copyright
+   notice, this list of conditions and the following disclaimer.
+2. Redistributions in binary form must reproduce the above copyright
+   notice, this list of conditions and the following disclaimer in the
+   documentation and/or other materials provided with the distribution.
+
+THIS SOFTWARE IS PROVIDED BY AUTHOR AND CONTRIBUTORS ``AS IS'' AND
+ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+ARE DISCLAIMED.  IN NO EVENT SHALL AUTHOR OR CONTRIBUTORS BE LIABLE
+FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
+OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
+HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
+LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
+OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
+SUCH DAMAGE.
+
+$Id$
+
+*/
+
+
+interface DatabaseInterface {
+    public function AutoCommit($bool);
+    public function Commit();
+    public function RollBack();
+    public function Prepare($name, $query);
+    public function Execute($name, $result_type=DatabaseCommon::DB_BUFFERED_RESULT);
+    public function Query($query, $result_type=DatabaseCommon::DB_BUFFERED_RESULT);
+    public function GetRow($query=NULL);
+    public function GetResult();
+}
+
+interface DatabaseResult {
+
+    const INTEGER = 1;
+    const ASSOCIATIVE = 2;
+
+    public function GetRow($mode=DatabaseResult::ASSOCIATIVE);
+    public function Seek($offset);
+}
+
+class DatabaseConnectException extends Exception {}
+class DatabaseQueryException extends Exception {}
+
+class DatabaseCommon {
+
+    protected $Link;
+
+    const DB_CONNECT_ERROR = 1;
+    const DB_QUERY_ERROR = 2;
+
+    const DB_BUFFERED_RESULT = 11;
+    const DB_UNBUFFERED_RESULT = 12;
+
+    public function Error($error, $message) {
+        if ($error == self::DB_CONNECT_ERROR)
+            throw new DatabaseConnectException($message);
+        if ($error == self::DB_QUERY_ERROR)
+            throw new DatabaseQueryException($message);
+    }
+
+}
+
+class DatabaseX implements DatabaseInterface {
+
+    protected $DBType;
+    protected $Database = NULL;
+    protected $Hostname = NULL;
+    protected $Username = NULL;
+    protected $Password = NULL;
+
+    public $Handle;
+
+    public function __construct() {
+        global $_CONF;
+
+        $db = $_CONF['db'];
+        $this->DBType = strtolower($db['type']);
+
+        $this->Database = $db['database'];
+        if ($this->DBType != 'sqlite') {
+            $this->Hostname = $db['hostname'];
+            $this->Username = $db['username'];
+            $this->Password = $db['password'];
+        }
+
+        $this->Connect();
+    }
+
+    public function Connect($dbtype=NULL, $database=NULL, $hostname=NULL,
+                            $username=NULL, $password=NULL) {
+
+        if ($dbtype != NULL)
+            $this->DBType = strtolower($dbtype);
+        if ($database != NULL)
+            $this->Database = $database;
+        if ($hostname != NULL)
+            $this->Hostname = $hostname;
+        if ($username != NULL)
+            $this->Username = $username;
+        if ($password != NULL)
+            $this->Password = $password;
+
+        switch ($this->DBType) {
+        case 'sqlite':
+            $this->Handle = new SQLitedb($this->Database);
+            break;
+        case 'mysql':
+            $this->Handle = new MySQLdb($this->Hostname, $this->Username,
+                                        $this->Password, $this->Database);
+            break;
+        case 'mysqli':
+            $this->Handle = new MySQLidb($this->Hostname, $this->Username,
+                                         $this->Password, $this->Database);
+            break;
+        case 'pgsql':
+            $this->Handle = new PgSQLdb($this->Hostname, $this->Username,
+                                        $this->Password, $this->Database);
+            break;
+        }
+    }
+
+    public function AutoCommit($bool) {
+        $this->Handle->AutoCommit($bool);
+    }
+
+    public function Commit() {
+        return $this->Handle->Commit();
+    }
+
+    public function RollBack() {
+        return $this->Handle->RollBack();
+    }
+
+    public function Prepare($name, $query) {
+        return $this->Handle->Prepare($name, $query);
+    }
+
+    public function Execute($name, $result_type=DatabaseCommon::DB_BUFFERED_RESULT) {
+        return $this->Handle->Execute($name);
+    }
+
+    public function Query($query, $result_type=DatabaseCommon::DB_BUFFERED_RESULT) {
+        ex_debug('Query: ' . $query, 2);
+        return $this->Handle->Query($query);
+    }
+
+    public function GetRow($query=NULL) {
+        ex_debug('GetRow: ' . $query, 2);
+        return $this->Handle->GetRow($query);
+    }
+
+    public function GetResult() {
+        return $this->Handle->GetResult();
+    }
+}
+
+?>

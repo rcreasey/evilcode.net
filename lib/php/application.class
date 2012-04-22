@@ -1,0 +1,468 @@
+<?php
+
+/*
+
+Copyright (C) 2002-2004 Ryan C. Creasey. All rights reserved.
+Copyright (C) 2004-2005 Samuel J. Greear. All rights reserved.
+
+$Id$
+
+*/
+
+@define('SITE_BASE', dirname(__FILE__) . '/../..');
+require_once SITE_BASE . '/lib/php/global.php';
+
+class Application {
+
+    public $Conf;
+    public $Request;
+    public $DB = NULL;
+    public $protectedURIs;
+
+      // Default depth to look for pages
+    protected $SubpageDepth = 4;
+
+      // Must be setup by our subclass in each site
+    protected $SitePath = NULL;
+
+      // Placeholder for the combined content
+    protected $Content = NULL;
+
+      // Individual pieces of the page, assembled into $Content
+      // These must be set by the pages we pull in based on $SitePath
+    public $AppTitle = NULL;
+    public $PageTitle = NULL;
+    public $Header = NULL;
+    public $Navigation = NULL;
+    public $Data = NULL;
+    public $Footer = NULL;
+
+      // microtime() of when we started page generation
+    private $StartTime;
+
+    public function __construct() {
+        $this->StartTime = microtime();
+
+        global $_CONF, $_APPREQ;
+        $this->Conf = &$_CONF;
+        $this->Request = &$_APPREQ;
+	$this->protectedURIs = array();
+
+          // Setup session
+        session_start();
+    }
+
+    public function PrepareContent() {
+
+          // Handle URL-requested errors
+        if ($this->Request['page'] == 'error') {
+            $this->HandleHTTPError((int)$this->Request['subpage'][0]);
+        }
+
+          // Check credentials 
+        $this->URICheckpoint();
+
+          // Setup database
+        try {
+          $this->DB = Database::Connect($this, 'default');
+        } catch ( Exception $e)  {
+          $except = new Para('exception');
+          $except->AddPara($e->getMessage());
+          $except->AddPara(backtrace($e->getTrace()));
+          $this->Data['backtrace'] = $except;
+        }
+
+        try {
+            if ($this->FindPage() != false) {
+                ex_debug('Serving: ' . $this->Request['includePath'], 2);
+                switch ($this->Request['contentHandler']) {
+                  case 'php':
+                    $this->HandlePHPContent( $this->Request['includePath'] ); 
+                    break;
+
+                  case 'xhtml':
+                    $this->HandleXHTMLContent( $this->Request['includePath'] ); 
+                    break;
+
+                  case 'text':
+                    $this->HandleTextContent( $this->Request['includePath'] ); 
+                    break;
+
+                  case 'native':
+                  default:
+                    $this->HandleNativeContent( $this->Request['includePath'] ); 
+                }
+
+            } else {
+                  // Check the CMS
+                if (! $this->HandleCMSContent( $this->Request['uri'] )) {
+                    // Throw a 404
+                  $this->HandleHTTPError(404);
+                }
+
+            }
+
+        } catch (Exception $e) {
+            if ($this->Conf['debug_level'] >= 2) {
+                $except = new Para('exception');
+                $except->AddPara($e->getMessage());
+                $except->AddPara(backtrace($e->getTrace()));
+                $this->Data['backtrace'] = $except;
+            } else {
+                // XXX: Output to file
+            }
+        }
+    }
+
+      // XXX: Make most-specific first
+    private function FindPage() {
+        $depth = $this->SubpageDepth;
+        $subpage = $this->Request['subpage'];
+        $page_name = $this->Conf['defaults']['page_name'];
+
+        if ($this->Request['page'] != '/')
+            $page = $this->SitePath . '/' . $this->Request['page'];
+        else
+            $page = $this->SitePath;
+
+        $subpage_depth = count($subpage);
+        if ($subpage_depth < $depth)
+            $depth = $subpage_depth;
+
+        ex_debug("Subpage search depth is: $depth", 3);
+
+        for ($i = $depth; $i > 0; $i--) {
+            $basepage = $page;
+
+            for ($j = 0; $j < $i-1; $j++)
+                $basepage .= '/' . $subpage[$j];
+
+            if ($subpage[$i-1] != '') {
+                $include_file = $basepage . '/' . $subpage[$i-1];
+                if ($this->CheckPage($include_file))
+                    return true;
+            }
+
+            $basepage .= '/' . $subpage[$i-1];
+
+            if ($subpage[$i-1] != '') {
+                $include_file = $basepage . '/' . $subpage[$i-1];
+                if ($this->CheckPage($include_file))
+                    return true;
+
+                $include_file = $basepage . '/' . $page_name;
+                if ($this->CheckPage($include_file))
+                    return true;
+            }
+
+            array_pop($subpage);
+        }
+
+        if ($this->Request['page'] != '/') {
+            $include_file = $page;
+            if ($this->CheckPage($include_file))
+                return true;
+
+            $include_file = $page . '/' . $this->Request['page'];
+            if ($this->CheckPage($include_file))
+                return true;
+        }
+
+        $include_file = $page . '/' . $page_name . '/' . $page_name;
+        if ($this->CheckPage($include_file))
+            return true;
+
+        $include_file = $page . '/' . $page_name;
+        if ($this->CheckPage($include_file))
+            return true;
+
+        return false;
+    }
+
+    private function CheckPage($path) {
+        static $pagecount = 0;
+        $pagecount++;
+
+        $extensions = array();
+        $extensions['native'] = $this->Conf['defaults']['page_extension'];
+        $extensions['php']    = '.php';
+        $extensions['xhtml']  = '.xhtml';
+        $extensions['text']   = '.txt';
+
+        ex_debug(sprintf("Checking page: %s: %s{%s}", $pagecount, $path, implode("|",$extensions)), 3);
+
+        foreach ($extensions as $handler => $page_extension) {
+          if (file_exists($path . $page_extension)) {
+            $this->Request['contentHandler'] = $handler;
+            $this->Request['includePath'] = $path . $page_extension;
+          
+            return true;
+          }
+        }
+
+        return false;
+    }
+
+    private function SetupHead() {
+
+        if ($this->AppTitle != NULL)
+            $this->Content->AddElement('apptitle', $this->AppTitle);
+
+        if ($this->PageTitle != NULL)
+            $this->Content->AddElement('pagetitle', $this->PageTitle);
+
+        if ($this->Header != NULL && ! $this->Request['ajax'])
+            $this->Content->AddElement('header', $this->Header);
+    }
+
+    private function SetupBody() {
+
+        if ($this->Navigation != NULL && ! $this->Request['ajax']) {
+            if (is_array($this->Navigation)) {
+                foreach ($this->Navigation as $element) {
+                    $navigation = new XMLement('navigation');
+                    $navigation->AddChild($element);
+                    $this->Content->AddChild($navigation);
+                }
+            } else {
+                $this->Content->AddChild($this->Navigation);
+            }
+        }
+
+        $content = NULL;
+
+          /* XXX: Better next-page-message mechanism */
+          /* ryan: I don't like this at all. */
+        /*
+        if (isset($_SESSION['message'])) {
+            $message = new Para('session_message');
+            $message->AddPara($_SESSION['message']);
+            if ($content == NULL) {
+                $content = new XMLement('content');
+                $content->SetAttribute('style', 'content');
+            }
+            $content->AddChild($message);
+            unset($_SESSION['message']);
+        }
+        */
+
+        if ($this->Data != NULL) {
+            if (is_array($this->Data)) {
+                  // XXX: Make recursive?
+                foreach($this->Data as $datakey => $dataval) {
+                    if (is_array($dataval)) {
+                        foreach ($dataval as $datakey1 => $dataval1) {
+                            $element = new XMLement('content');
+                            $element->SetAttribute('style', $datakey1);
+                            $element->AddChild($dataval1);
+                            $this->Content->AddChild($element);
+                        }
+                    } elseif (is_numeric($datakey)) {
+                        if ($content == NULL) {
+                            $content = new XMLement('content');
+                            $content->SetAttribute('style', 'content');
+                        }
+                        $content->AddChild($dataval);
+                    } else {
+                        $element = new XMLement('content');
+                        $element->SetAttribute('style', $datakey);
+                        $element->AddChild($dataval);
+                        $this->Content->AddChild($element);
+                    }
+                }
+            } else {
+                if ($content == NULL) {
+                    $content = new XMLement('content');
+                    $content->SetAttribute('style', 'content');
+                }
+                $content->AddChild($this->Data);
+            }
+        }
+
+        if ($content != NULL)
+            $this->Content->AddChild($content);
+    }
+
+    private function SetupFoot() {
+
+        if ($this->Footer != NULL && ! $this->Request['ajax'])
+            $this->Content->AddElement('footer', $this->Footer);
+
+        if ($this->Conf['debug']) {
+            $debug = new Debug();
+            $this->Content->AddChild($debug);
+        }
+    }
+
+    public function Render() {
+
+        try {
+            $this->Content = new XMLement('document');
+            $this->Content->SetAttribute('version', '1.0');
+            $this->Content->SetAttribute('uri', $this->Request['uri']);
+
+            $this->SetupHead();
+            $this->SetupBody();
+            $this->SetupFoot();
+
+            if ($this->Request['format'] == 'xml') {
+                header('Content-Type: text/xml; charset=utf-8');
+                print $this->Content->Render();
+            } else {
+                header('Content-Type: text/html; charset=utf-8');
+
+                $xsl = new DOMDocument();
+                   // try the site's xsl stylesheets first
+                if (file_exists(SITE_BASE . '/private/xsl/' . $this->Request['format'] . '.xsl'))
+                    $xsl->load(SITE_BASE . '/private/xsl/' . $this->Request['format'] .  '.xsl');
+                else
+                    $xsl->load(SITE_BASE . '/lib/xsl/' . $this->Request['format'] .  '.xsl');
+
+                  /* XXX */
+                $rendered_xml = $this->Content->Render();
+                $xml = new DOMDocument();
+                $xml->loadXML($rendered_xml);
+
+                $this->OutputXHTML($xml, $xsl);
+            }
+        } catch (Exception $e) {
+              // XXX: This will never get output, switch this up to feed some error page through the
+              // (XXX nonexistant) template engine, and log error to file
+            $this->Content = new Para('exception');
+            $this->Content->AddPara($e->getMessage());
+
+            if ($this->Conf['debug_level'] >= 2)
+                $this->Content->AddPara(backtrace($e->getTrace()));
+        }
+    }
+
+    private function OutputXHTML($xml, $xsl) {
+        $proc = new XSLTProcessor();
+        $proc->registerPhpFunctions();
+        $proc->importStyleSheet($xsl);
+
+        $output = $proc->transformToXML($xml);
+          // XXX: This is a problem, we need to figure out WHY html
+          // special characters are being escaped in the first place
+        print strtr($output,
+                    array_flip(get_html_translation_table(HTML_ENTITIES)));
+    }
+
+    public function HandleHTTPError($error) {
+        $this->Request['error'] = $error;
+
+        // clear the Data array
+        $this->Data = array();
+
+        require_once(SITE_LIB . '/http-error.php');
+        header(sprintf("HTTP/1.1 %d", $this->Request['error']));
+
+        $this->Render();
+        exit();
+    }
+
+    private function HandleCMSContent($uri) {
+      $query     = 'select id, title, style from section where uri=:uri';
+      $handle    = $this->DB->Prepare($query);
+      $handle->BindParam(':uri', $uri, PDO::PARAM_STR);
+      $handle->Execute();
+      $results = $handle->FetchAll();
+
+      if (count($results)) {
+        // only select the first row
+        $row     = $results[0];
+        $select  = 'select copy, style, weight ';
+        $from    = 'from content ';
+        $where   = 'where content.section=:section_id ';
+        $order   = 'order by weight';
+
+        $query   = $select . $from . $where . $order;
+        $handle  = $this->DB->Prepare($query);
+        $handle->BindParam(':section_id', $row['id'], PDO::PARAM_INT);
+        $handle->Execute();
+        $result  = $handle->Fetch();
+
+        $copy = new Para();
+        $copy->AddPara($result['copy']);
+
+        $this->Header    = $row['style'];
+        $this->PageTitle = $row['title'];
+        $this->Data[]    = $copy;
+
+        return $result;
+      } else {
+        return false;
+      }
+    }
+
+    private function HandleNativeContent($file) {
+      require_once($this->Request['includePath']);
+      return true;
+    }
+
+    private function HandlePHPContent($file) {
+      $this->Header = ' ';
+      $content = file_get_contents($file);
+      $phpContent = preg_replace_callback('/\<\?(php|=)?(.*)\?\>/i', "PHParser", $content);
+
+      $copy = new Para('raw');
+      $copy->AddPara($phpContent);
+      $this->Data[] = $copy;
+
+      return true;
+    }
+
+    private function HandleXHTMLContent($file) {
+      $this->Header = ' ';
+      $content = file_get_contents($file);
+      $copy = new Para('raw');
+      $copy->AddPara($content);
+      $this->Data[] = $copy;
+
+      return true;
+    }
+
+    private function HandleTextContent($file) {
+      $this->Header = ' ';
+      $content = file_get_contents($file);
+      $copy = new Para();
+      $copy->AddPara($content);
+      $this->Data[] = $copy;
+
+      return true;
+    }
+
+    private function URICheckpoint() {
+        $access = (@$_SESSION['user']->Class === NULL ) ? NULL : $_SESSION['user']->Class;
+
+        foreach( $this->protectedURIs as $uri ) {
+          if (strncmp($this->Request['uri'], $uri['name'], strlen($uri['name'])) == 0
+             && !in_array($access, explode(",", $uri['clearance'])) ) {
+            Application::HandleHTTPError(403);
+          }
+        }
+    }
+
+    public function SetUriClearance($page, $level) {
+        $this->protectedURIs[] = array('name' => $page, 'clearance' => $level);
+    }
+}
+
+  // XXX: Make this return X.XX usec, X.XX msec, X.XX sec, X.XX min
+global $StartTime;
+$StartTime = microtime(true);
+function GenerationTime() {
+    global $StartTime;
+    return sprintf("%2.4f", (microtime(true) - $StartTime));
+}
+
+function PHParser($matches) {
+  ob_start();
+  eval( array_pop($matches) );
+  $output = ob_get_contents();
+  ob_end_clean();
+  return $output;
+}
+
+
+?>

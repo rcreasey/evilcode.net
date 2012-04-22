@@ -1,0 +1,64 @@
+<?php
+
+class Curl {
+
+    public $Result;
+    public $Vars = '';
+    public $TempFile;
+    public $RequestType;
+    public $URL;
+
+    public $Handle;
+
+    public function __construct($request_type='POST') {
+
+        $this->Handle = curl_init();
+
+        $this->RequestType = $request_type;
+        if ($request_type == 'POST')
+            curl_setopt($this->Handle, CURLOPT_POST, 1);
+
+        curl_setopt($this->Handle, CURLOPT_RETURNTRANSFER, 1);
+    }
+
+    public function CreateCookie() {
+        $this->TempFile = tempnam("/tmp", "CurlCookie");
+        curl_setopt($this->Handle, CURLOPT_COOKIEJAR, $this->TempFile);
+    }
+
+    public function UseCookie($filename) {
+        curl_setopt($this->Handle, CURLOPT_COOKIEFILE, $filename);
+    }
+
+    public function SetURL($url) {
+        $this->URL = $url;
+        curl_setopt($this->Handle, CURLOPT_URL, $url);
+    }
+
+    public function AddVar($key, $value) {
+        $this->Vars .= $key . "=" . urlencode($value) . "&";
+    }
+
+    public function AddVars($arr) {
+        foreach ($arr as $key => $value)  {
+            $this->AddVar($key, $value);
+        }
+    }
+
+    public function Execute() {
+        $this->Vars = substr($this->Vars, 0, -1);
+
+        if ($this->RequestType == 'POST') {
+            curl_setopt($this->Handle, CURLOPT_POSTFIELDS, $this->Vars);
+        } else {
+            $this->URL = $this->URL . '?' . $this->Vars;
+            curl_setopt($this->Handle, CURLOPT_URL, $this->URL);
+        }
+
+        $this->Result = curl_exec($this->Handle);
+        curl_close($this->Handle);
+        return $this->Result;
+    }
+}
+
+?>

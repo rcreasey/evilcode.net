@@ -1,0 +1,66 @@
+<?php
+
+class GrokClass {
+
+    private $Class;
+    public $CurrentClassName;
+    
+    public $MaxDepth = 1;
+    private $CurDepth = 0;
+    
+    public function __construct($class) {
+    
+        $this->Class = new ReflectionClass($class);
+        $this->CurrentClassName = $class;
+        
+        $comment = $this->Class->getDocComment();
+        
+//        $properties = $this->Class->getProperties();
+//        var_export($properties);
+
+        $this->NewClass($this->CurrentClassName, $comment);
+        
+        foreach ($this->Class->getMethods() as $method) {
+            if (!$method->isInternal()) {
+                $declaring_class = $method->getDeclaringClass();
+                if ($declaring_class->name != $this->CurrentClassName) {
+                    $this->CurDepth++;
+                    if ($this->MaxDepth != 0 && $this->CurDepth >= $this->MaxDepth) {
+                        break;
+                    } else {
+                        $this->CurrentClassName = $declaring_class->name;
+                        $this->NewClass($this->CurrentClassName, NULL);
+                    }
+                }
+
+                $parameters = $method->getParameters();
+                $parameter_arr = array();
+
+                foreach ($parameters as $parameter) {
+                    $parameter_arr[$parameter->getName()] =
+                        array('optional' => $parameter->isOptional(),
+                              'default_value_available' => $parameter->isDefaultValueAvailable());
+
+                    if ($parameter_arr[$parameter->getName()]['default_value_available'])
+                        $parameter_arr[$parameter->getName()]['default_value'] =
+                            $parameter->getDefaultValue();
+                }
+                                
+                $name = $method->getName();
+                $comment = $method->getDocComment();
+                $public = $method->isPublic();
+                $this->NewMethod($name, $comment, $public, $parameter_arr);
+            }
+        }
+    }
+
+    public function NewClass($name, $comment) {
+        print 'NewClass, Name: ' . $name . "\n";
+    }
+
+    public function NewMethod($name, $comment, $public, $parameters) {
+        print 'NewMethod, Name: ' . $name . "\n";
+    }
+}
+
+?>

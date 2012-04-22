@@ -1,0 +1,182 @@
+<?php
+
+/*
+
+Copyright (C) 2004-2006 Samuel J. Greear. All rights reserved.
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions
+are met:
+1. Redistributions of source code must retain the above copyright
+   notice, this list of conditions and the following disclaimer.
+2. Redistributions in binary form must reproduce the above copyright
+   notice, this list of conditions and the following disclaimer in the
+   documentation and/or other materials provided with the distribution.
+
+THIS SOFTWARE IS PROVIDED BY AUTHOR AND CONTRIBUTORS ``AS IS'' AND
+ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+ARE DISCLAIMED.  IN NO EVENT SHALL AUTHOR OR CONTRIBUTORS BE LIABLE
+FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
+OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
+HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
+LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
+OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
+SUCH DAMAGE.
+
+$Id$
+
+*/
+
+
+class Database extends PDO {
+
+    const FETCH_ASSOC = PDO::FETCH_ASSOC;
+    const FETCH_BOTH = PDO::FETCH_BOTH;
+    const FETCH_BOUND = PDO::FETCH_BOUND;
+    const FETCH_CLASS = PDO::FETCH_CLASS;
+    const FETCH_INFO = PDO::FETCH_INTO;
+    const FETCH_LAZY = PDO::FETCH_LAZY;
+    const FETCH_NUM = PDO::FETCH_NUM;
+    const FETCH_OBJ = PDO::FETCH_OBJ;
+
+    public $App;
+
+    private $Handle;
+
+    public function __construct($app, $dsn, $username=NULL, $password=NULL) {
+        $this->App = $app;
+        $this->Handle = NULL;
+
+        $dsn .= ';user=' . $username;
+        parent::__construct($dsn, $username, $password);
+    }
+
+    public function Begin() {
+        parent::beginTransaction();
+    }
+
+    public function Commit() {
+        parent::commit();
+    }
+
+    public function Rollback() {
+        parent::rollback();
+    }
+
+    public function InsertID($name=NULL) {
+        return parent::lastInsertId($name);
+    }
+
+    public function Prepare($statement) {
+        ex_info('Database: Prepare: ' . $statement);
+        if ($this->Handle !== NULL)
+            $this->Handle->closeCursor();
+
+        $this->Handle = parent::prepare($statement,
+                                  array(PDO::ATTR_STATEMENT_CLASS =>
+                                        array('DatabaseStatement')));
+
+        if (!$this->Handle instanceof PDOStatement) {
+            $error_info = parent::errorInfo();
+            throw new Exception('Could not prepare query: ' . $error_info[2]);
+        }
+
+        return $this->Handle;
+    }
+
+    public function Execute($statement) {
+        return parent::exec($statement);
+    }
+
+    public function Query($statement) {
+        $prepared_statement = $this->Prepare($statement);
+        $prepared_statement->Execute();
+        return $prepared_statement;
+    }
+
+    public function GetRow() {
+        return;
+    }
+
+    static public function CreateDSN($database, $hostname=NULL, $driver='pgsql') {
+        $dsn = $driver . ':';
+
+        if ($hostname == NULL)
+            $hostname = 'localhost';
+
+        $dsn .= 'dbname=' . $database . ';host=' . $hostname;
+        return $dsn;
+    }
+
+    static public function Connect($app, $identifier) {
+        $db = $app->Conf['db'][$identifier];
+        $dsn = Database::CreateDSN($db['database'], $db['hostname'], $db['driver']);
+
+        $dbh = new Database($app, $dsn, $db['username'], $db['password']);
+
+        if ($app->Conf['debug'] === true)
+            $dbh->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+
+        return $dbh;
+    }
+}
+
+class DatabaseStatement extends PDOStatement {
+
+    public function BindColumn($column, &$parameter, $data_type=NULL) {
+        return parent::bindColumn($column, $parameter, $data_type);
+    }
+
+    public function BindParam($parameter, &$variable, $data_type=NULL, $length=NULL) {
+        return parent::bindParam($parameter, $variable, $data_type, $length);
+    }
+
+    public function BindValue($parameter, $value, $data_type=NULL) {
+        return parent::bindValue($parameter, $value, $data_type);
+    }
+
+    public function CloseCursor() {
+        return parent::closeCursor();
+    }
+
+    public function ColumnCount() {
+        return parent::columnCount();
+    }
+
+// PDOStatement::columnCount
+// PDOStatement::errorCode
+// PDOStatement::errorInfo
+
+    public function Execute($parameters=NULL) {
+        return parent::execute($parameters);
+    }
+
+    public function Fetch($fetch_style=NULL) {
+        return parent::fetch($fetch_style);
+    }
+
+    public function FetchAll($fetch_style=NULL) {
+        return parent::fetchAll($fetch_style);
+    }
+
+    public function FetchColumn($column_number=NULL) {
+        return parent::fetchColumn($column_number);
+    }
+
+// PDOStatement::fetchObject
+// PDOStatement::getAttribute
+// PDOStatement::getColumnMeta
+// PDOStatement::nextRowset
+
+    public function RowCount() {
+        return parent::rowCount();
+    }
+
+// PDOStatement::setAttribute
+// PDOStatement::setFetchMode
+
+}
+
+?>

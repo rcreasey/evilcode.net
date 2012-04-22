@@ -1,0 +1,17 @@
+# evilcode.net rewrite rules
+# $Id$
+
+redirect permanent /projects/ http://evilprojects.net/
+
+php_value session.use_trans_sid 0
+php_value display_errors 1
+
+RewriteEngine on
+
+# directory rules
+#RewriteRule ^css/([a-zA-Z0-9\-]*)([/]?)$ /public/css/$1.css [L]
+#RewriteRule ^img/(.*)([/]?)$ /public/img/$1 [L]
+#RewriteRule ^favicon.ico$ /public/img/favicon.ico [L]
+
+# main rewrite
+#RewriteRule ^([\w]?(/)?)+$ /public/index.php [L]
